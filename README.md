@@ -81,6 +81,7 @@ commonbook prune             # then delete the originals
 | `commonbook adopt` | Find orphaned memory, copy it into the right book, bind the repo. |
 | `commonbook prune` | Delete originals that are verified present in a book. |
 | `commonbook lint` | Check notes against the contract for their type. Exits non-zero on violations. |
+| `commonbook graph` | Report whether a code graph exists for this repo, and whether it is stale. |
 | `commonbook caps` | Machine-readable state, for skills and scripts. |
 
 Every destructive or writing command takes `--dry-run`.
@@ -145,6 +146,33 @@ $ commonbook lint
 ```
 
 It ignores untyped notes entirely — the contracts apply only to the two types that have one.
+
+---
+
+## Code graphs
+
+Commonbook does not build code graphs. If you use a tool that does, `commonbook graph status`
+answers the question those tools do not answer about themselves — whether the graph still
+describes the code:
+
+```console
+$ commonbook graph status
+
+  scope     ~/code/api-gateway  (repo)
+  tool      /usr/local/bin/graphify
+  graph     ~/code/api-gateway/graphify-out/graph.json  (3,176,897 B)
+  size      2,692 nodes, 6,296 edges
+  freshness STALE — built at ccda890104e0, HEAD is 14 commit(s) later
+            structural answers may describe code that has changed
+```
+
+It never installs anything, and it validates the file against the schema it reads before trusting
+it — an upstream format change becomes an error rather than a confidently wrong answer.
+
+A `.commonbook/graph-scope` marker widens the scope to a directory holding several repos that share
+an interface. The search is bounded, so it can never expand to a whole workspace, where one graph
+would be meaningless: unrelated repos share no imports, so clustering just returns the directory
+names back.
 
 ---
 

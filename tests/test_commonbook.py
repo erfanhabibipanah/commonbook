@@ -432,3 +432,94 @@ class TestContracts(Base):
         rc = self.cb.cmd_lint(argparse.Namespace(
             path=str(self.work), vault=None, book=str(self.tmp / "book")))
         self.assertEqual(rc, 0)
+
+
+GRAPH = ROOT / "plugins" / "commonbook" / "bin" / "graph.py"
+
+
+class TestGraphAdapter(unittest.TestCase):
+    """The adapter probes and reports. It must never guess, and an absent tool
+    or absent graph is a normal state, not an error."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cb-graph-"))
+        spec = importlib.util.spec_from_file_location("gr", GRAPH)
+        self.gr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.gr)
+        self.repo = make_repo(self.tmp / "product" / "repo-a",
+                              "https://github.com/acme/repo-a")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _graph(self, payload):
+        d = self.repo / "graphify-out"
+        d.mkdir(exist_ok=True)
+        p = d / "graph.json"
+        p.write_text(json.dumps(payload))
+        return p
+
+    def test_valid_graph_has_no_problems(self):
+        p = self._graph({"nodes": [{"id": "a", "label": "A"}], "links": []})
+        data, problems = self.gr.validate(p)
+        self.assertEqual(problems, [])
+        self.assertIsNotNone(data)
+
+    def test_missing_top_level_key_is_reported(self):
+        p = self._graph({"nodes": [{"id": "a", "label": "A"}]})
+        _, problems = self.gr.validate(p)
+        self.assertTrue(any("links" in x for x in problems))
+
+    def test_missing_node_key_is_reported(self):
+        p = self._graph({"nodes": [{"id": "a"}], "links": []})
+        _, problems = self.gr.validate(p)
+        self.assertTrue(any("label" in x for x in problems))
+
+    def test_corrupt_json_is_reported_not_raised(self):
+        d = self.repo / "graphify-out"
+        d.mkdir(exist_ok=True)
+        p = d / "graph.json"
+        p.write_text("not json{")
+        data, problems = self.gr.validate(p)
+        self.assertIsNone(data)
+        self.assertTrue(problems)
+
+    def test_scope_defaults_to_the_repo(self):
+        scope, how = self.gr.graph_scope(self.repo)
+        self.assertEqual(how, "repo")
+        self.assertEqual(scope.resolve(), self.repo.resolve())
+
+    def test_marker_widens_scope_to_the_product_directory(self):
+        marker = self.repo.parent / self.gr.SCOPE_MARKER
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("product\n")
+        scope, how = self.gr.graph_scope(self.repo)
+        self.assertEqual(how, "marker")
+        self.assertEqual(scope.resolve(), self.repo.parent.resolve())
+
+    def test_scope_search_is_bounded(self):
+        """It must not walk up far enough to reach a whole workspace, where a
+        single code graph is meaningless — unrelated repos share no imports."""
+        deep = self.tmp / "a" / "b" / "c" / "d" / "e"
+        deep.mkdir(parents=True)
+        (self.tmp / self.gr.SCOPE_MARKER).parent.mkdir(parents=True, exist_ok=True)
+        (self.tmp / self.gr.SCOPE_MARKER).write_text("too far\n")
+        scope, how = self.gr.graph_scope(deep)
+        self.assertEqual(how, "repo")
+
+    def test_absent_graph_is_not_an_error(self):
+        import argparse, io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = self.gr.cmd_status(argparse.Namespace(path=str(self.repo)))
+        self.assertEqual(rc, 0)
+        self.assertIn("none", buf.getvalue())
+
+    def test_schema_drift_exits_nonzero(self):
+        import argparse, io, contextlib
+        self._graph({"nodes": [{"id": "a"}], "vertices": []})
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = self.gr.cmd_status(argparse.Namespace(path=str(self.repo)))
+        self.assertEqual(rc, 1)
+        self.assertIn("schema", buf.getvalue())
