@@ -6,6 +6,8 @@ Claude Code's auto memory is stored in a directory named after your project's **
 
 There is no built-in remap. Commonbook keys the memory on the repo's **git remote** instead, so it survives moves, renames and fresh clones.
 
+→ **[How this bug works, and how to check your own machine](docs/the-bug.md)**
+
 ```console
 $ commonbook doctor
 

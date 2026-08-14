@@ -44,6 +44,21 @@ fix, because it is what stops the next person walking the same path.
 Anything else worth keeping: a constraint, a fact about a service, where things
 stand.
 
+## Checking your own work
+
+`commonbook lint` reads every note in the book and reports the ones that do not
+meet the contract for their declared type. Run it after writing a batch, and
+before trusting the book to answer anything:
+
+```
+commonbook lint
+```
+
+It ignores untyped notes entirely and exits non-zero when something is wrong, so
+it also works as a pre-commit check on a book kept in git. If it flags a note you
+just wrote, the honest fix is usually to change the *type*, not to pad the
+section — a fact with no rejected alternative is a note, not a decision.
+
 ## Rules for all three
 
 - Write nothing a reader could get by opening the code. No summaries of what
