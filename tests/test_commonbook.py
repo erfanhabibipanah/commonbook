@@ -308,3 +308,68 @@ class TestManifests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+AGG = ROOT / "plugins" / "commonbook" / "bin" / "aggregate.py"
+
+
+class TestAggregate(unittest.TestCase):
+    """The index must never exceed the cap — content past it is dropped
+    silently at load time, so an over-budget index reads as complete."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cb-agg-"))
+        spec = importlib.util.spec_from_file_location("agg", AGG)
+        self.agg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.agg)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _book(self, name, count, tags="", body="filler "):
+        d = self.tmp / name / "memory"
+        d.mkdir(parents=True)
+        for i in range(count):
+            (d / f"note-{i}.md").write_text(
+                f"---\nname: {name} note {i}\ndescription: {body * 12}\n"
+                f"tags: [{tags}]\n---\n\n# {name} note {i}\n")
+
+    def test_respects_both_caps(self):
+        self._book("alpha", 200)
+        self._book("beta", 200)
+        notes = self.agg.scan_books(self.tmp)
+        text, dropped = self.agg.render(self.agg.rank(notes), self.agg.BYTE_BUDGET)
+        self.assertLessEqual(len(text.encode()), self.agg.BYTE_BUDGET)
+        self.assertLessEqual(len(text.splitlines()), self.agg.LINE_BUDGET)
+        self.assertGreater(dropped, 0)
+
+    def test_overflow_is_reported_not_hidden(self):
+        self._book("alpha", 300)
+        notes = self.agg.scan_books(self.tmp)
+        text, dropped = self.agg.render(self.agg.rank(notes), 2000)
+        self.assertIn("did not fit", text)
+        self.assertIn(str(dropped), text)
+
+    def test_small_book_is_not_truncated(self):
+        self._book("alpha", 3)
+        notes = self.agg.scan_books(self.tmp)
+        text, dropped = self.agg.render(self.agg.rank(notes), self.agg.BYTE_BUDGET)
+        self.assertEqual(dropped, 0)
+        self.assertNotIn("did not fit", text)
+
+    def test_pinned_outranks_everything(self):
+        self._book("alpha", 5)
+        p = self.tmp / "alpha" / "memory" / "note-0.md"
+        p.write_text("---\nname: pinned one\npin: true\n---\n\n# pinned one\n")
+        ranked = self.agg.rank(self.agg.scan_books(self.tmp))
+        self.assertEqual(ranked[0]["title"], "pinned one")
+
+    def test_shared_topic_outranks_a_local_note(self):
+        self._book("alpha", 4, tags="postgres")
+        self._book("beta", 4, tags="postgres")
+        self._book("gamma", 4, tags="only-here")
+        ranked = self.agg.rank(self.agg.scan_books(self.tmp))
+        self.assertGreater(ranked[0]["_shared"], 1)
+
+    def test_empty_tree_is_not_an_error(self):
+        self.assertEqual(self.agg.scan_books(self.tmp / "nothing"), [])
