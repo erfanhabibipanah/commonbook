@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # The tool claims macOS, Linux and WSL. Claiming it and testing only one is
+    # how a cross-platform promise quietly becomes false.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Configure git
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          git config --global init.defaultBranch main
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Byte-compile (no syntax errors on the minimum version)
+        run: python -m compileall -q plugins tests
+      - name: No third-party imports
+        # The install story is "one file, standard library only". A stray import
+        # would break curl-and-run without failing any test.
+        run: |
+          python - <<'PY'
+          import ast, sys, pathlib
+          allowed = set(sys.stdlib_module_names)
+          bad = []
+          for f in pathlib.Path("plugins").rglob("*.py"):
+              for node in ast.walk(ast.parse(f.read_text())):
+                  mods = []
+                  if isinstance(node, ast.Import):
+                      mods = [a.name for a in node.names]
+                  elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                      mods = [node.module]
+                  for m in mods:
+                      if m.split(".")[0] not in allowed:
+                          bad.append(f"{f}: {m}")
+          if bad:
+              print("non-stdlib imports found:", *bad, sep="\n  ")
+              sys.exit(1)
+          print("stdlib only — ok")
+          PY

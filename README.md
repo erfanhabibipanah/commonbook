@@ -25,7 +25,7 @@ $ commonbook doctor
 **As a Claude Code plugin**
 
 ```
-/plugin marketplace add YOUR-GITHUB-USER/commonbook
+/plugin marketplace add erfanhabibipanah/commonbook
 /plugin install commonbook@commonbook
 ```
 
@@ -34,7 +34,7 @@ Then, in any repo: `/commonbook:bind`
 **As a standalone command** — one file, standard library only, no dependencies:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/YOUR-GITHUB-USER/commonbook/main/plugins/commonbook/bin/commonbook.py -o ~/.local/bin/commonbook
+curl -fsSL https://raw.githubusercontent.com/erfanhabibipanah/commonbook/main/plugins/commonbook/bin/commonbook.py -o ~/.local/bin/commonbook
 chmod +x ~/.local/bin/commonbook
 ```
 
