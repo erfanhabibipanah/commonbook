@@ -1,0 +1,3 @@
+#!/bin/sh
+# POSIX shim so the plugin exposes one command regardless of how python is named.
+exec python3 "$(dirname "$0")/commonbook.py" "$@"

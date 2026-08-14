@@ -1,0 +1,7 @@
+{
+  "name": "commonbook",
+  "version": "0.1.0",
+  "description": "Bind a repo's Claude Code memory to its git identity so it survives moves, renames and fresh clones.",
+  "keywords": ["memory", "auto-memory", "context", "git", "persistence"],
+  "license": "MIT"
+}

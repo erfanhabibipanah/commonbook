@@ -1,0 +1,13 @@
+{
+  "name": "commonbook",
+  "owner": { "name": "Commonbook" },
+  "metadata": { "pluginRoot": "./plugins" },
+  "plugins": [
+    {
+      "name": "commonbook",
+      "source": "commonbook",
+      "description": "Bind a repo's Claude Code memory to its git identity so it survives moves, renames and fresh clones.",
+      "version": "0.1.0"
+    }
+  ]
+}
