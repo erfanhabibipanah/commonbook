@@ -80,6 +80,7 @@ commonbook prune             # then delete the originals
 | `commonbook bind` | Point this repo's memory at a book keyed on its git remote. |
 | `commonbook adopt` | Find orphaned memory, copy it into the right book, bind the repo. |
 | `commonbook prune` | Delete originals that are verified present in a book. |
+| `commonbook lint` | Check notes against the contract for their type. Exits non-zero on violations. |
 | `commonbook caps` | Machine-readable state, for skills and scripts. |
 
 Every destructive or writing command takes `--dry-run`.
@@ -125,6 +126,25 @@ The plugin ships three, deliberately:
 - **`bind`** — set up or repair the binding.
 
 The typed requirements are the point. A decision without its rejected alternative gets relitigated in six months; a gotcha with a tidied-up error message cannot be found by the person hitting it next.
+
+`commonbook lint` enforces them across a whole book:
+
+```console
+$ commonbook lint
+
+  decision     10
+  gotcha       82
+  reference    10
+
+  x decision-move-auth-into-the-data-fetch.md   no 'Rejected' section — a decision without
+                                               the alternative that lost is not a decision
+  x gotcha-webview-onloadend-never-fires.md     no verbatim error text in a fenced block —
+                                               retrieval is a literal string search
+
+2 violation(s)
+```
+
+It ignores untyped notes entirely — the contracts apply only to the two types that have one.
 
 ---
 

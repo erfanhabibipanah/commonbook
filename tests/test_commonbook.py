@@ -373,3 +373,62 @@ class TestAggregate(unittest.TestCase):
 
     def test_empty_tree_is_not_an_error(self):
         self.assertEqual(self.agg.scan_books(self.tmp / "nothing"), [])
+
+
+class TestContracts(Base):
+    """A typed note that cannot meet its own contract is a different type."""
+
+    def _note(self, name, text):
+        d = self.tmp / "book"
+        d.mkdir(exist_ok=True)
+        p = d / name
+        p.write_text(text)
+        return p
+
+    def test_decision_without_rejected_fails(self):
+        p = self._note("d.md", "---\ntype: decision\n---\n\n# Use Postgres\n\n"
+                               "## Decision\n\nWe use Postgres.\n")
+        self.assertTrue(self.cb.contract_violations(p))
+
+    def test_decision_with_empty_rejected_fails(self):
+        p = self._note("d.md", "---\ntype: decision\n---\n\n# X\n\n## Rejected\n\n"
+                               "| Option | Why not |\n| --- | --- |\n|  |  |\n")
+        self.assertTrue(self.cb.contract_violations(p))
+
+    def test_decision_with_real_rejected_passes(self):
+        p = self._note("d.md", "---\ntype: decision\n---\n\n# X\n\n## Rejected\n\n"
+                               "| Option | Why not |\n| --- | --- |\n"
+                               "| MySQL | no native JSONB, and the query shape needs it |\n")
+        self.assertEqual(self.cb.contract_violations(p), [])
+
+    def test_gotcha_without_verbatim_error_fails(self):
+        p = self._note("g.md", "---\ntype: gotcha\n---\n\n# It broke\n\n"
+                               "## Symptom\n\nThe build failed with a type error.\n")
+        self.assertTrue(self.cb.contract_violations(p))
+
+    def test_gotcha_with_fenced_error_passes(self):
+        p = self._note("g.md", "---\ntype: gotcha\n---\n\n# It broke\n\n## Symptom\n\n"
+                               "```\nTypeError: cannot read property 'x' of undefined\n```\n")
+        self.assertEqual(self.cb.contract_violations(p), [])
+
+    def test_untyped_notes_are_not_policed(self):
+        p = self._note("n.md", "---\ntype: note\n---\n\n# Anything\n\nfree form\n")
+        self.assertEqual(self.cb.contract_violations(p), [])
+
+    def test_note_with_no_frontmatter_is_not_policed(self):
+        p = self._note("n.md", "# Just a heading\n\ntext\n")
+        self.assertEqual(self.cb.contract_violations(p), [])
+
+    def test_lint_exits_nonzero_on_violations(self):
+        import argparse
+        self._note("d.md", "---\ntype: decision\n---\n\n# X\n\nno rejected section\n")
+        rc = self.cb.cmd_lint(argparse.Namespace(
+            path=str(self.work), vault=None, book=str(self.tmp / "book")))
+        self.assertEqual(rc, 1)
+
+    def test_lint_exits_zero_when_clean(self):
+        import argparse
+        self._note("n.md", "---\ntype: note\n---\n\n# fine\n\ntext\n")
+        rc = self.cb.cmd_lint(argparse.Namespace(
+            path=str(self.work), vault=None, book=str(self.tmp / "book")))
+        self.assertEqual(rc, 0)

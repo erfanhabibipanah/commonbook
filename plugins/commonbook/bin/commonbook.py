@@ -581,6 +581,124 @@ def cmd_prune(args) -> int:
     return 0
 
 
+def note_type(text: str) -> "str | None":
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return None
+    t = re.search(r"^type:\s*(\S+)", m.group(1), re.M)
+    return t.group(1).strip().lower() if t else None
+
+
+def contract_violations(path: Path) -> "list[str]":
+    """Why this note fails the contract for its own type.
+
+    Two types carry a requirement, and each requirement exists because the note
+    is useless without it:
+
+    * A DECISION without the rejected alternative does not stop the question
+      being relitigated — the chosen path is already visible in the code; what
+      is invisible is that the other option was considered and ruled out.
+    * A GOTCHA without verbatim error text cannot be found. Retrieval is a
+      literal string search, so a paraphrased or tidied error is unfindable by
+      the person hitting it next.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ["unreadable"]
+
+    kind = note_type(text)
+    if kind not in ("decision", "gotcha"):
+        return []
+
+    body = re.sub(r"^---\n.*?\n---\n", "", text, flags=re.S)
+    problems = []
+
+    if kind == "decision":
+        m = re.search(r"^#{1,4}\s*(rejected|alternatives considered|options rejected)\b(.*?)"
+                      r"(?=^#{1,4}\s|\Z)", body, re.S | re.M | re.I)
+        if not m:
+            problems.append("no 'Rejected' section — a decision without the "
+                            "alternative that lost is not a decision")
+        else:
+            # A heading with nothing under it, or a table that is only its own
+            # header, is the same failure wearing the right hat. Drop the header
+            # and separator rows before measuring — "| Option | Why not |" is
+            # the template, not an answer.
+            lines = []
+            seen_sep = False
+            for ln in m.group(2).splitlines():
+                if re.match(r"^\s*\|[\s|:-]+\|\s*$", ln):
+                    seen_sep = True
+                    lines = []          # everything before the separator is the header
+                    continue
+                lines.append(ln)
+            body_text = "\n".join(lines) if seen_sep else m.group(2)
+            content = re.sub(r"[|\-\s:]", "", body_text)
+            if len(content) < 12:
+                problems.append("'Rejected' section is empty — name the "
+                                "alternative and why it lost")
+
+    if kind == "gotcha":
+        fenced = re.findall(r"```.*?\n(.*?)```", body, re.S)
+        if not any(len(b.strip()) >= 8 for b in fenced):
+            problems.append("no verbatim error text in a fenced block — "
+                            "retrieval is a literal string search")
+
+    return problems
+
+
+def iter_notes(book: Path):
+    if not book.is_dir():
+        return
+    for f in sorted(book.rglob("*.md")):
+        if f.is_file() and not f.name.startswith("."):
+            yield f
+
+
+def cmd_lint(args) -> int:
+    """Check every note in the book against the contract for its type."""
+    start = Path(args.path).expanduser().resolve()
+    root = repo_root(start) or start
+    settings, ok = read_settings(root)
+    book = Path(settings["autoMemoryDirectory"]) if ok and settings.get("autoMemoryDirectory") else None
+    if args.book:
+        book = Path(args.book).expanduser()
+    if not book or not book.is_dir():
+        out.err("no book found — run `commonbook bind` first, or pass --book")
+        return 2
+
+    counts, bad = {}, []
+    for f in iter_notes(book):
+        try:
+            kind = note_type(f.read_text(encoding="utf-8", errors="replace")) or "untyped"
+        except OSError:
+            continue
+        counts[kind] = counts.get(kind, 0) + 1
+        for why in contract_violations(f):
+            bad.append((f, why))
+
+    out.say(out.bold(f"contracts in {book}"))
+    out.say()
+    for kind, n in sorted(counts.items()):
+        out.say(f"  {kind:<12} {n}")
+    out.say()
+
+    if not bad:
+        out.say(out.green("every typed note meets its contract"))
+        return 0
+
+    for f, why in bad:
+        try:
+            rel = f.relative_to(book)
+        except ValueError:
+            rel = f
+        out.say(f"  {out.yellow('x')} {str(rel)[:48]:<48} {why}")
+    out.say()
+    out.say(out.yellow(f"{len(bad)} violation(s)"))
+    return 1
+
+
 def cmd_caps(args) -> int:
     """Machine-readable capability probe, for skills to branch on."""
     start = Path(args.path).expanduser().resolve()
@@ -633,6 +751,11 @@ def main(argv=None) -> int:
     p = sub.add_parser("doctor", help="report what is bound, unbound or orphaned")
     common(p)
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("lint", help="check notes against the contract for their type")
+    common(p)
+    p.add_argument("--book", metavar="DIR", help="check this directory instead")
+    p.set_defaults(func=cmd_lint)
 
     p = sub.add_parser("prune", help="delete orphan stores already copied into a book")
     p.add_argument("--dry-run", action="store_true")
