@@ -1178,10 +1178,18 @@ class TestCliSurface(unittest.TestCase):
     SHIM = ROOT / "plugins" / "commonbook" / "bin" / "commonbook"
 
     def _run(self, *args):
+        # The shim is a POSIX sh script, which Windows cannot execute directly
+        # (WinError 193). Invoke it through sh where that exists; the
+        # cross-platform entry point is the .pyz, covered by
+        # TestSingleFileInstall.
+        if sys.platform == "win32":
+            self.skipTest("the sh shim is POSIX-only; the .pyz covers Windows")
         return subprocess.run([str(self.SHIM), *args],
                               capture_output=True, text=True, timeout=60)
 
     def test_shim_is_executable(self):
+        if sys.platform == "win32":
+            self.skipTest("executable bit is not meaningful on Windows")
         self.assertTrue(os.access(self.SHIM, os.X_OK))
 
     def test_every_documented_verb_dispatches(self):
@@ -1435,6 +1443,24 @@ class TestDestructiveSafety(Base):
 class TestSingleFileInstall(unittest.TestCase):
     """The README's install line fetches one file. Every verb it advertises has
     to work from that file — this is the path every stranger takes."""
+
+    def test_documented_verbs_match_the_packed_build(self):
+        """The cross-platform check. The shim is POSIX-only, so on Windows this
+        is the only thing standing between a rename and a broken install."""
+        readme = (ROOT / "README.md").read_text()
+        documented = sorted({m for m in re.findall(r"`commonbook (\w+)`", readme)})
+        self.assertTrue(documented)
+        import tempfile as tf
+        with tf.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "cb.pyz"
+            subprocess.run([sys.executable, str(ROOT / "build.py"), "--out", str(out)],
+                           capture_output=True, text=True, timeout=300, check=True)
+            for verb in documented:
+                with self.subTest(verb=verb):
+                    p = subprocess.run([sys.executable, str(out), verb, "--help"],
+                                       capture_output=True, text=True, timeout=60)
+                    self.assertEqual(p.returncode, 0,
+                                     f"`commonbook {verb}` fails in the packed build")
 
     def test_build_and_every_advertised_verb_works(self):
         import tempfile as tf

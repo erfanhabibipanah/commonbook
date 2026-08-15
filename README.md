@@ -43,7 +43,9 @@ chmod +x ~/.local/bin/commonbook
 One file, every command. Built by `python3 build.py`, and CI runs every documented verb against
 the built artifact so the install cannot quietly lose one.
 
-Requires Python 3.9+ and git. Works on macOS, Linux and WSL.
+Requires Python 3.9+ and git. Works on macOS, Linux, WSL and Windows — the single file runs
+anywhere Python does. (The Claude Code plugin's `commonbook` shim is a POSIX shell script, so on
+native Windows use the downloaded file directly.)
 
 ---
 
