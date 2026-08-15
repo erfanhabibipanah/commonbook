@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      # Build on the oldest supported interpreter and exercise every documented
+      # verb against the artifact before it is published. An install that ships
+      # without a command the README promises is the failure this guards.
+      - name: Build and verify the single-file install
+        run: python build.py --check
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            commonbook.pyz commonbook.pyz.sha256 \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

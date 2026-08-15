@@ -77,6 +77,20 @@ if __name__ == "__main__":
 '''
 
 
+def checksum(path: Path) -> Path:
+    """Write <file>.sha256 beside the artifact.
+
+    The README tells people to verify the download before running it against a
+    directory holding months of notes. Telling them to check a file that is
+    never produced is worse than not offering the check at all.
+    """
+    import hashlib
+    h = hashlib.sha256(path.read_bytes()).hexdigest()
+    side = path.with_suffix(path.suffix + ".sha256")
+    side.write_text(f"{h}  {path.name}\n", encoding="utf-8")
+    return side
+
+
 def build(out: Path) -> Path:
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp) / "app"
@@ -138,7 +152,9 @@ def main() -> int:
     a = ap.parse_args()
 
     pyz = build(Path(a.out))
+    side = checksum(pyz)
     print(f"built {pyz}  ({pyz.stat().st_size:,} B)")
+    print(f"      {side.name}  {side.read_text().split()[0][:16]}…")
     return check(pyz) if a.check else 0
 
 

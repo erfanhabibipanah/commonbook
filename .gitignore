@@ -3,3 +3,4 @@ __pycache__/
 .DS_Store
 .claude/settings.local.json
 commonbook.pyz
+commonbook.pyz.sha256
