@@ -1145,6 +1145,30 @@ class TestViewOmissions(unittest.TestCase):
         self.assertIn(self.vw.W_BOOKS_ROOT_MISSING,
                       {w["kind"] for w in doc["warnings"]})
 
+    def test_books_root_reason_does_not_call_them_bound_repos(self):
+        """The inference counts repos that POINT a book at this root. The
+        document's `state == "bound"` additionally requires a stable identity,
+        so on a real machine the two numbers differ — they did by three here.
+        Printing "inferred from 42 bound repos" above a document listing 39
+        makes the tool look like it is lying about the one thing it exists to
+        report, and hands the reassuring word to the repos least entitled to it:
+        the ones with no remote, whose book is still keyed on a path.
+        """
+        # A repo with a binding but NO remote: counted by the inference,
+        # never `bound` in the document.
+        rootless = self.work / "rootless"
+        rootless.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=rootless, check=True)
+        book = self.tmp / "books" / "rootless" / "memory"
+        book.mkdir(parents=True)
+        (rootless / ".claude").mkdir()
+        (rootless / ".claude" / "settings.local.json").write_text(
+            json.dumps({"autoMemoryDirectory": str(book)}), encoding="utf-8")
+
+        _, reason = self.vw.infer_books_root([rootless])
+        self.assertIn("1 repo with a book here", reason)
+        self.assertNotIn("bound", reason)
+
     def test_unreadable_book_does_not_take_the_document_down(self):
         # POSIX-only by construction: chmod 000 does not make a directory
         # unreadable on Windows, and os.geteuid does not exist there at all, so

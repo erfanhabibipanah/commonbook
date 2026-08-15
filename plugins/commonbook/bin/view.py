@@ -608,7 +608,17 @@ def infer_books_root(roots) -> "tuple[Path, str]":
         parents[str(anc)] = parents.get(str(anc), 0) + 1
     if parents:
         best = max(parents.items(), key=lambda kv: kv[1])
-        return Path(best[0]), f"inferred from {plural(best[1], 'bound repo')}"
+        # NOT "bound repos". This counts repos whose settings point a book at
+        # this root; `state == "bound"` additionally requires a stable identity.
+        # The two differ by exactly the repos with a binding but no git remote —
+        # the ones whose book is still path-keyed and will orphan on the next
+        # move. Reusing "bound" for both printed "inferred from 42 bound repos"
+        # above a document listing 39, and applied the reassuring word to the
+        # three repos that had least earned it.
+        return Path(best[0]), (
+            "inferred from "
+            + plural(best[1], "repo with a book here", "repos with a book here")
+        )
     return cb.DEFAULT_BOOKS, "default"
 
 
