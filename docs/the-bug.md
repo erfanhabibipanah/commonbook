@@ -1,3 +1,8 @@
+---
+title: "The bug: Claude Code forgets a project when you rename its folder"
+description: "A walkthrough of how Claude Code's auto memory is orphaned by a directory rename, why the obvious detection method lies, and the setting that already fixes it."
+---
+
 # Claude Code forgets a project when you rename its folder
 
 I regrouped a workspace recently. Twenty-odd repositories that had been sitting flat at the top went into subdirectories. Plain `mv`. Git untouched, remotes unchanged.

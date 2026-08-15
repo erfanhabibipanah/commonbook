@@ -1,0 +1,22 @@
+# GitHub Pages config. This site exists so the writeup lives on a domain that
+# can be submitted to Search Console — github.com cannot be, since we do not
+# own it.
+title: Commonbook
+description: >-
+  Claude Code keys auto memory on a project's filesystem path, so moving or
+  renaming the folder silently orphans every note. Detect it, recover the
+  notes, and stop it recurring.
+theme: jekyll-theme-cayman
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+# jekyll-seo-tag reads this for the link preview card. Authorship is carried by
+# the repo links in the page itself, so no handle is duplicated here.
+twitter:
+  card: summary
+
+# The repo README and LICENSE are not pages.
+exclude:
+  - Gemfile
+  - Gemfile.lock
