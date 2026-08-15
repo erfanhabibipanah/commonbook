@@ -1209,3 +1209,100 @@ class TestCliSurface(unittest.TestCase):
     def test_unknown_verb_is_an_error_not_a_silent_pass(self):
         p = self._run("definitely-not-a-verb")
         self.assertNotEqual(p.returncode, 0)
+
+
+RENDER = ROOT / "plugins" / "commonbook" / "bin" / "render.py"
+
+
+class TestRender(unittest.TestCase):
+    """The page must be self-contained and must not invent numbers.
+
+    A renderer that silently drops rows is the same failure as a document that
+    silently drops stores, one layer up — so these assert that what goes in
+    comes out, not merely that HTML was produced.
+    """
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("rd", RENDER)
+        self.rd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.rd)
+
+    def _doc(self, **over):
+        doc = {
+            "generatedAt": "2026-01-01T00:00:00Z", "tool": "commonbook 0.1.0",
+            "scan": {"searchRoot": "/w"},
+            "totals": {"repos": 2, "books": 1, "notes": 3, "orphanNotes": 0,
+                       "states": {"bound": 1, "unbound": 1}},
+            "repos": [
+                {"name": "alpha", "path": "/w/alpha", "state": "bound",
+                 "notes": 3, "identity": {"kind": "remote"}, "why": ""},
+                {"name": "beta", "path": "/w/beta", "state": "unbound",
+                 "notes": 0, "identity": {"kind": "path"}, "why": "no binding"},
+            ],
+            "warnings": [], "topics": [],
+        }
+        doc.update(over)
+        return doc
+
+    def test_page_is_self_contained(self):
+        h = self.rd.render(self._doc())
+        self.assertNotIn("<script", h)
+        self.assertNotIn('src="http', h)
+        self.assertNotIn('href="http', h)
+
+    def test_defines_both_themes_through_tokens(self):
+        h = self.rd.render(self._doc())
+        self.assertIn("prefers-color-scheme:dark", h)
+        self.assertIn("background:var(--bg)", h)
+
+    def test_every_repo_appears(self):
+        h = self.rd.render(self._doc())
+        for name in ("alpha", "beta"):
+            self.assertIn(name, h)
+
+    def test_at_risk_headline_counts_every_unsafe_state(self):
+        doc = self._doc(totals={"repos": 4, "books": 0, "notes": 0, "orphanNotes": 0,
+                                "states": {"bound": 1, "unbound": 1,
+                                           "no-stable-identity": 1, "orphaned": 1}})
+        h = self.rd.render(doc)
+        self.assertIn("3 repositories are one move away", h)
+
+    def test_all_bound_says_so(self):
+        doc = self._doc(totals={"repos": 1, "books": 0, "notes": 0, "orphanNotes": 0,
+                                "states": {"bound": 1}})
+        self.assertIn("Every repository is bound.", self.rd.render(doc))
+
+    def test_warnings_are_grouped_by_kind(self):
+        doc = self._doc(warnings=[{"kind": "book-empty", "subject": f"/b/{i}"}
+                                  for i in range(9)])
+        h = self.rd.render(doc)
+        self.assertIn("book-empty", h)
+        self.assertIn(">9<", h)              # the count, not nine separate rows
+
+    def test_hostile_content_is_escaped(self):
+        doc = self._doc(repos=[{"name": "<img src=x onerror=alert(1)>",
+                                "path": "/w/x", "state": "bound", "notes": 0,
+                                "identity": {"kind": "remote"}, "why": ""}])
+        h = self.rd.render(doc)
+        self.assertNotIn("<img src=x", h)
+        self.assertIn("&lt;img", h)
+
+    def test_empty_machine_renders_without_crashing(self):
+        doc = {"generatedAt": "x", "tool": "t", "scan": {}, "totals": {},
+               "repos": [], "warnings": [], "topics": []}
+        h = self.rd.render(doc)
+        self.assertIn("No repositories found", h)
+
+    def test_rejects_input_that_is_not_a_view_document(self):
+        import argparse, io, contextlib, tempfile as tf
+        with tf.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            f.write('{"hello":"world"}')
+            path = f.name
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                rc = self.rd.main(["--in", path, "--out", path + ".html"])
+            self.assertEqual(rc, 2)
+            self.assertIn("view document", buf.getvalue())
+        finally:
+            os.unlink(path)

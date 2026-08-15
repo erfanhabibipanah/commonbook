@@ -14,7 +14,7 @@ py=${COMMONBOOK_PYTHON:-python3}
 
 verb=${1:-}
 case "$verb" in
-  view|aggregate|graph|autonomy)
+  view|aggregate|graph|autonomy|render)
     shift
     COMMONBOOK_PROG="commonbook $verb" export COMMONBOOK_PROG
     exec "$py" "$dir/$verb.py" "$@"
@@ -29,6 +29,7 @@ case "$verb" in
     echo "  aggregate   a ranked, budgeted index across every book"
     echo "  graph       report whether a code graph exists, and whether it is stale"
     echo "  autonomy    write-authority tiers and the invariants that check them"
+    echo "  render      turn a view document into one self-contained HTML page"
     exit 0
     ;;
   *)

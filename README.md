@@ -86,6 +86,7 @@ commonbook prune             # then delete the originals
 | `commonbook graph` | Report whether a code graph exists for this repo, and whether it is stale. |
 | `commonbook caps` | Machine-readable state, for skills and scripts. |
 | `commonbook view` | One JSON document describing the memory state of the machine. |
+| `commonbook render` | Turn that document into one self-contained HTML page. |
 
 Every destructive or writing command takes `--dry-run`.
 
@@ -149,6 +150,24 @@ $ commonbook lint
 ```
 
 It ignores untyped notes entirely — the contracts apply only to the two types that have one.
+
+---
+
+## Seeing the whole machine
+
+```sh
+commonbook view | commonbook render && open commonbook.html
+```
+
+One HTML file: which repos are bound, which are one `mv` from losing their notes, what is already
+unreachable, and every warning grouped by kind rather than listed flat.
+
+No JavaScript, no vendored library, no external requests. It works from `file://`, offline, with
+scripting disabled. Shipping half a megabyte of graph engine to draw forty rows would make "one
+file, standard library only" untrue.
+
+It is a state view, not a dashboard — no token counts, no cost charts. Those are answered better
+elsewhere, and by tools that already exist.
 
 ---
 
