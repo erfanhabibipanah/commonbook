@@ -1,3 +1,37 @@
 #!/bin/sh
-# POSIX shim so the plugin exposes one command regardless of how python is named.
-exec python3 "$(dirname "$0")/commonbook.py" "$@"
+# One command, several modules.
+#
+# The core verbs live in commonbook.py; the optional ones are separate files so
+# each stays independently readable and testable. This shim routes to them so
+# the user types one command and the README is not lying about what exists.
+#
+# Kept POSIX sh with no arrays or bashisms: it runs on macOS's /bin/sh, on
+# Debian's dash, and under Git Bash on Windows.
+set -e
+
+dir=$(dirname "$0")
+py=${COMMONBOOK_PYTHON:-python3}
+
+verb=${1:-}
+case "$verb" in
+  view|aggregate|graph|autonomy)
+    shift
+    COMMONBOOK_PROG="commonbook $verb" export COMMONBOOK_PROG
+    exec "$py" "$dir/$verb.py" "$@"
+    ;;
+  ""|-h|--help)
+    # The core's help lists only its own verbs, so name the others here rather
+    # than let them be undiscoverable.
+    "$py" "$dir/commonbook.py" --help
+    echo
+    echo "also available:"
+    echo "  view        one JSON document describing this machine's memory state"
+    echo "  aggregate   a ranked, budgeted index across every book"
+    echo "  graph       report whether a code graph exists, and whether it is stale"
+    echo "  autonomy    write-authority tiers and the invariants that check them"
+    exit 0
+    ;;
+  *)
+    exec "$py" "$dir/commonbook.py" "$@"
+    ;;
+esac

@@ -168,7 +168,7 @@ def cmd_scope(a) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="graph.py", description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(prog=os.environ.get("COMMONBOOK_PROG", "graph.py"), description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn in (("status", cmd_status), ("scope", cmd_scope)):
         p = sub.add_parser(name)

@@ -178,7 +178,7 @@ def render(notes: "list[dict]", budget: int) -> "tuple[str, int]":
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="aggregate.py", description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(prog=os.environ.get("COMMONBOOK_PROG", "aggregate.py"), description=__doc__.split("\n")[0])
     ap.add_argument("--books", default=str(DEFAULT_BOOKS), help="directory holding books")
     ap.add_argument("--out", help="where to write (default: <books>/INDEX.md)")
     ap.add_argument("--budget", type=int, default=BYTE_BUDGET)

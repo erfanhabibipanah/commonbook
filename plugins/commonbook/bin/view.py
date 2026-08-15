@@ -735,7 +735,7 @@ def render(doc: dict) -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="view.py", description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(prog=os.environ.get("COMMONBOOK_PROG", "view.py"), description=__doc__.split("\n")[0])
     ap.add_argument("--out", metavar="FILE", help="write the document here instead of stdout")
     ap.add_argument("--search", default=str(cb.HOME), metavar="DIR",
                     help="where to look for repositories (default: home)")

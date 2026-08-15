@@ -11,6 +11,7 @@ Run:  python3 -m unittest discover -s tests -v
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1163,3 +1164,48 @@ class TestViewOmissions(unittest.TestCase):
             self.assertGreaterEqual(len(doc["books"]), 1)
         finally:
             os.chmod(locked, 0o755)
+
+
+class TestCliSurface(unittest.TestCase):
+    """Every verb the README documents must actually run.
+
+    The README described `commonbook view` and three others while only the core
+    verbs existed — the optional modules were standalone scripts nobody could
+    reach by the documented name. Documentation that is wrong is worse than
+    documentation that is missing, so this asserts the two agree.
+    """
+
+    SHIM = ROOT / "plugins" / "commonbook" / "bin" / "commonbook"
+
+    def _run(self, *args):
+        return subprocess.run([str(self.SHIM), *args],
+                              capture_output=True, text=True, timeout=60)
+
+    def test_shim_is_executable(self):
+        self.assertTrue(os.access(self.SHIM, os.X_OK))
+
+    def test_every_documented_verb_dispatches(self):
+        readme = (ROOT / "README.md").read_text()
+        documented = sorted({m for m in re.findall(r"`commonbook (\w+)`", readme)})
+        self.assertTrue(documented, "no verbs found in the README")
+        for verb in documented:
+            with self.subTest(verb=verb):
+                p = self._run(verb, "--help")
+                self.assertEqual(p.returncode, 0,
+                                 f"`commonbook {verb}` failed: {p.stderr[:200]}")
+
+    def test_help_names_the_optional_modules(self):
+        p = self._run("--help")
+        self.assertEqual(p.returncode, 0)
+        for verb in ("view", "aggregate", "graph", "autonomy"):
+            self.assertIn(verb, p.stdout)
+
+    def test_usage_reports_the_name_the_user_typed(self):
+        """`usage: view.py` after typing `commonbook view` sends people looking
+        for a file that is not on PATH."""
+        p = self._run("view", "--help")
+        self.assertIn("commonbook view", p.stdout)
+
+    def test_unknown_verb_is_an_error_not_a_silent_pass(self):
+        p = self._run("definitely-not-a-verb")
+        self.assertNotEqual(p.returncode, 0)

@@ -249,7 +249,7 @@ def cmd_check(a) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="autonomy.py", description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(prog=os.environ.get("COMMONBOOK_PROG", "autonomy.py"), description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common(p):
