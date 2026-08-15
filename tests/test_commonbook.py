@@ -1306,3 +1306,55 @@ class TestRender(unittest.TestCase):
             self.assertIn("view document", buf.getvalue())
         finally:
             os.unlink(path)
+
+
+class TestScanPerformance(Base):
+    """The first command a new user runs is the one that scans. A silent
+    multi-minute walk is indistinguishable from a hang, and a faster walk that
+    quietly skips a tree is the same silent omission this tool exists to
+    prevent — so the skip is counted and reversible."""
+
+    def _tree(self):
+        # a repo somewhere ordinary, and one inside a pruned directory
+        make_repo(self.work / "code" / "app", "https://github.com/acme/app")
+        buried = self.work / "Library" / "Mobile Documents" / "notes"
+        make_repo(buried, "https://github.com/acme/notes")
+        return buried
+
+    def test_pruned_directories_are_counted_not_silently_skipped(self):
+        self._tree()
+        roots, pruned = self.cb.discover_live(self.work, 6)
+        self.assertGreater(pruned, 0)
+
+    def test_prune_excludes_system_directories(self):
+        buried = self._tree()
+        roots, _ = self.cb.discover_live(self.work, 6)
+        self.assertNotIn(str(buried), roots)
+        self.assertEqual(len(roots), 1)
+
+    def test_no_prune_finds_everything(self):
+        buried = self._tree()
+        roots, pruned = self.cb.discover_live(self.work, 6, prune=False)
+        self.assertIn(str(buried), roots)
+        self.assertEqual(pruned, 0)
+
+    def test_progress_is_reported(self):
+        self._tree()
+        seen = []
+        self.cb.discover_live(self.work, 6,
+                              progress=lambda n, f, final=False: seen.append(final))
+        self.assertTrue(seen and seen[-1] is True, "no final progress callback")
+
+    def test_short_replaces_the_home_prefix(self):
+        p = Path.home() / "code" / "thing"
+        self.assertTrue(self.cb.short(p).startswith("~"))
+        self.assertNotIn(str(Path.home()), self.cb.short(p))
+
+    def test_short_leaves_other_paths_alone(self):
+        self.assertEqual(self.cb.short("/opt/elsewhere"), "/opt/elsewhere")
+
+    def test_adopt_still_works_without_the_new_flag(self):
+        """A hand-built Namespace must not need every flag argparse defines."""
+        import argparse
+        self.cb.cmd_adopt(argparse.Namespace(
+            vault=None, search=str(self.work), depth=3, dry_run=True, yes=True))

@@ -244,7 +244,7 @@ def canonical_repos(search: Path, depth: int) -> "dict[str, dict]":
     to the canonical root, which is the same key the memory store uses.
     """
     groups: "dict[str, dict]" = {}
-    for path in sorted(cb.discover_live(search, depth).values(), key=str):
+    for path in sorted(cb.discover_live(search, depth)[0].values(), key=str):
         root = cb.repo_root(path) or path
         entry = groups.setdefault(str(root), {"root": root, "checkouts": []})
         # Resolved, not spelled: git reports an absolute canonical path, the walk
@@ -577,6 +577,33 @@ def cross_book_topics(notes: "list[dict]", warn: Warnings) -> "list[dict]":
 
 # ──────────────────────────────────────────────────────────────── document ──
 
+
+def infer_books_root(roots) -> "tuple[Path, str]":
+    """Where this machine actually keeps its books.
+
+    Asking the user for --books is asking them to tell the tool something the
+    tool can already see: most repos are bound, and their book paths share a
+    parent. Guessing from that is right on any layout, including one this tool
+    did not create. Falls back to the default only when nothing is bound yet.
+    """
+    parents: "dict[str, int]" = {}
+    for root in roots:
+        settings, ok = cb.read_settings(Path(root))
+        if not ok:
+            continue
+        book = cb.bound_dir(settings)
+        if not book:
+            continue
+        # <books>/<id>/memory -> <books>
+        p = Path(book)
+        anc = p.parent.parent if p.name == "memory" else p.parent
+        parents[str(anc)] = parents.get(str(anc), 0) + 1
+    if parents:
+        best = max(parents.items(), key=lambda kv: kv[1])
+        return Path(best[0]), f"inferred from {plural(best[1], 'bound repo')}"
+    return cb.DEFAULT_BOOKS, "default"
+
+
 def build(search: Path, depth: int, books_root: Path) -> dict:
     """Collect the whole state. Reads only."""
     warn = Warnings()
@@ -747,13 +774,22 @@ def main(argv=None) -> int:
                     help="where to look for repositories (default: home)")
     ap.add_argument("--depth", type=int, default=5, metavar="N",
                     help="how deep to search (default: 5)")
-    ap.add_argument("--books", "--vault", dest="books", default=str(cb.DEFAULT_BOOKS),
+    ap.add_argument("--books", "--vault", dest="books", default=None,
                     metavar="DIR", help="the directory holding books — the same one "
                                         "`bind --vault` writes to")
     a = ap.parse_args(argv)
 
-    doc = build(Path(a.search).expanduser().resolve(), a.depth,
-                Path(a.books).expanduser())
+    search = Path(a.search).expanduser().resolve()
+    if a.books:
+        books, how = Path(a.books).expanduser(), "given"
+    else:
+        # Infer rather than demand. The bindings already say where books live.
+        roots, _ = cb.discover_live(search, a.depth)
+        books, how = infer_books_root(roots)
+    if how != "given":
+        print(f"  books root: {cb.short(books)}  ({how})", file=sys.stderr)
+
+    doc = build(search, a.depth, books)
     text = render(doc)
 
     if not a.out:

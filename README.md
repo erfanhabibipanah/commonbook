@@ -61,6 +61,8 @@ dry run — would adopt 2 store(s), 33,302 bytes, 2 project(s)
 
 `adopt` matches each orphan to a live repo, copies the notes into that project's book, and binds the repo so it cannot happen again.
 
+The scan skips system directories — `Library`, tool installs, dependency trees — which is the difference between a few seconds and several minutes. It says how many it skipped, and `--no-prune` searches them anyway.
+
 Recovered notes land **beside** existing ones, never merged into them. Merging is the one operation that loses information without telling you.
 
 Originals stay on disk until you remove them:
@@ -158,6 +160,8 @@ It ignores untyped notes entirely — the contracts apply only to the two types 
 ```sh
 commonbook view | commonbook render && open commonbook.html
 ```
+
+No flags needed: `view` finds your books by looking at where your repos are already bound.
 
 One HTML file: which repos are bound, which are one `mv` from losing their notes, what is already
 unreachable, and every warning grouped by kind rather than listed flat.

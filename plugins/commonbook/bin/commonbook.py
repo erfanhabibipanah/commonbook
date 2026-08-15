@@ -196,6 +196,14 @@ def cwd_of(project_dir: Path) -> "str | None":
     return None
 
 
+def short(p) -> str:
+    """Paths as a person writes them. A full /Users/... prefix on every row wraps
+    the terminal and buries the part that identifies the repo."""
+    s = str(p)
+    h = str(HOME)
+    return "~" + s[len(h):] if s.startswith(h + os.sep) or s == h else s
+
+
 def notes_in(d: Path) -> "list[Path]":
     try:
         return [p for p in d.rglob("*.md") if p.is_file()]
@@ -331,7 +339,7 @@ def cmd_bind(args) -> int:
 
     current = bound_dir(settings)
     if current == str(target):
-        out.say(f"{out.green('already bound')}  {root.name} -> {target}")
+        out.say(f"{out.green('already bound')}  {root.name} -> {short(target)}")
         return 0
 
     settings["autoMemoryDirectory"] = str(target)
@@ -339,7 +347,7 @@ def cmd_bind(args) -> int:
         write_json_atomic(settings_path(root), settings)
 
     verb = "rebound" if current else "bound"
-    out.say(f"{out.green(verb)}  {out.bold(root.name)} -> {target}")
+    out.say(f"{out.green(verb)}  {out.bold(root.name)} -> {short(target)}")
     out.say(f"  identity: {kind}  {out.dim(human)}")
     if kind == "path":
         out.warn("no git remote and no commits — this book is keyed on the path,")
@@ -359,22 +367,58 @@ def match_orphan(cwd: str, live_roots: "dict[str, Path]") -> "Path | None":
     return hits[0] if len(hits) == 1 else None
 
 
-def discover_live(search: Path, depth: int) -> "dict[str, Path]":
-    """Live git repos under a search root, to match orphans against."""
+# Directories that never hold a repo you would bind, and that dominate the walk.
+# Measured on one machine: ~/Library was 17,189 of 24,198 directories and
+# ~/miniconda3 another 5,345 — 93% of the time spent somewhere no answer lives.
+# Skipping them turns a five-minute first run into a few seconds, which matters
+# because the first run is the only one a new user waits through.
+PRUNE_ALWAYS = {
+    # build output and dependency trees
+    "node_modules", ".next", "dist", "build", ".venv", "venv", ".turbo",
+    "__pycache__", "vendor", "target", ".gradle", ".tox", ".mypy_cache",
+    "Pods", "DerivedData", ".terraform", "bower_components",
+    # OS and application data
+    "Library", "Applications", "System", "Volumes", ".Trash",
+    "AppData", "Windows", "Program Files", "Program Files (x86)",
+    # language and tool installs
+    "miniconda3", "anaconda3", ".rustup", ".cargo", ".nvm", ".pyenv", ".rbenv",
+    ".gem", ".cache", ".local", ".npm", ".pnpm-store", ".yarn", "go",
+}
+
+
+def discover_live(search: Path, depth: int, progress=None,
+                  prune=True) -> "tuple[dict, int]":
+    """Live git repos under a search root, to match orphans against.
+
+    Reports progress because a silent multi-second scan is indistinguishable
+    from a hang, and the first thing a new user runs is the thing that scans.
+    """
     roots: "dict[str, Path]" = {}
-    skip = {"node_modules", ".next", "dist", "build", ".venv", ".turbo",
-            "__pycache__", ".git", "vendor", "target"}
     base_depth = len(search.parts)
+    seen = pruned = 0
     for cur, dirs, _ in os.walk(search):
         p = Path(cur)
         if len(p.parts) - base_depth > depth:
             dirs[:] = []
             continue
-        dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".")]
+        keep = []
+        for d in dirs:
+            if d.startswith("."):
+                continue
+            if prune and d in PRUNE_ALWAYS:
+                pruned += 1          # counted, so the skip is never silent
+                continue
+            keep.append(d)
+        dirs[:] = keep
+        seen += 1
+        if progress and seen % 500 == 0:
+            progress(seen, len(roots))
         if (p / ".git").exists():
             roots[str(p)] = p
-            dirs[:] = []
-    return roots
+            dirs[:] = []          # a repo's subdirectories are the same project
+    if progress:
+        progress(seen, len(roots), final=True)
+    return roots, pruned
 
 
 def cmd_adopt(args) -> int:
@@ -386,7 +430,21 @@ def cmd_adopt(args) -> int:
         return 0
 
     search = Path(args.search).expanduser().resolve()
-    live_roots = discover_live(search, args.depth)
+
+    def tick(seen, found, final=False):
+        # \r keeps it to one line on a TTY; on a pipe it would be noise, so it
+        # is suppressed entirely rather than written to a log nobody reads.
+        if not sys.stderr.isatty():
+            return
+        end = "\n" if final else ""
+        print(f"\r  scanning {short(search)} … {seen:,} dirs, {found} repos{end}",
+              end="", file=sys.stderr, flush=True)
+
+    # getattr, not args.no_prune: these command functions are called directly by
+    # tests and by other modules with a hand-built Namespace, and adding a flag
+    # should not break every such caller.
+    live_roots, pruned = discover_live(search, args.depth, progress=tick,
+                                       prune=not getattr(args, "no_prune", False))
 
     plan = []
     for s in orphans:
@@ -400,11 +458,17 @@ def cmd_adopt(args) -> int:
     projects = {r.name for _, r in matched}
 
     out.say(out.bold("found " + plural(len(orphans), "orphaned memory store")))
-    out.say(out.dim(f"  searched {search} to depth {args.depth} · " + plural(len(live_roots), "live repo")))
+    note = ""
+    if pruned:
+        # Report the skip. A faster scan that quietly ignores a directory tree is
+        # the same silent omission this tool exists to prevent.
+        note = f" · {pruned:,} system dirs skipped (--no-prune to include)"
+    out.say(out.dim(f"  searched {short(search)} to depth {args.depth} · "
+                    + plural(len(live_roots), "live repo") + note))
     out.say()
     for s, root in matched:
         out.say(f"  {out.cyan(root.name):<28} {len(s['notes']):>3} notes  {s['bytes']:>7,} B"
-                f"  {out.dim(s['cwd'] or '?')}")
+                f"  {out.dim(short(s['cwd']) if s['cwd'] else '?')}")
     for s, _ in unmatched:
         out.say(f"  {out.yellow('unmatched'):<28} {len(s['notes']):>3} notes  {s['bytes']:>7,} B"
                 f"  {out.dim(s['cwd'] or 'no cwd recorded')}")
@@ -478,7 +542,7 @@ def cmd_doctor(args) -> int:
         bound = bound_dir(settings)
         target = resolve_target(root, book_id, args.vault)
 
-        out.say(f"  repo      {root}")
+        out.say(f"  repo      {short(root)}")
         out.say(f"  identity  {kind}  {out.dim(human)}")
         if not ok:
             out.say(f"  binding   {out.red('settings.local.json is not valid JSON')}")
@@ -488,11 +552,11 @@ def cmd_doctor(args) -> int:
             out.say(f"            orphan if the directory moves. Fix: commonbook bind")
             problems += 1
         elif bound != str(target):
-            out.say(f"  binding   {out.yellow('bound elsewhere')} -> {bound}")
-            out.say(f"            expected {target}")
+            out.say(f"  binding   {out.yellow('bound elsewhere')} -> {short(bound)}")
+            out.say(f"            expected {short(target)}")
         else:
             n = len(notes_in(Path(bound))) if Path(bound).is_dir() else 0
-            out.say(f"  binding   {out.green('bound')} -> {bound} {out.dim(f'({n} notes)')}")
+            out.say(f"  binding   {out.green('bound')} -> {short(bound)} {out.dim(f'({n} notes)')}")
 
         if kind == "path":
             out.say(f"            {out.yellow('no stable identity')} — add a git remote")
@@ -771,6 +835,8 @@ def main(argv=None) -> int:
                    help="how deep to search (default: 5)")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("-y", "--yes", action="store_true", help="do not prompt")
+    p.add_argument("--no-prune", action="store_true",
+                   help="also search system directories (Library, tool installs) — much slower")
     p.set_defaults(func=cmd_adopt)
 
     p = sub.add_parser("doctor", help="report what is bound, unbound or orphaned")
