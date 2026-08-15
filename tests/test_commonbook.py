@@ -634,3 +634,68 @@ class TestAutonomy(unittest.TestCase):
         rc, out = self._quiet(self.au.cmd_check, self._ns())
         self.assertEqual(rc, 0)
         self.assertIn("all invariants hold", out)
+
+
+class TestMalformedSettings(Base):
+    """A file can be valid JSON and still not be settings. Every one of these
+    crashed a shipped read-only command with AttributeError before the type
+    check was added — doctor should never take a repo down for a hand edit."""
+
+    def _write(self, repo, payload):
+        sf = repo / ".claude/settings.local.json"
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text(payload)
+        return sf
+
+    def test_non_object_json_is_treated_as_unparseable(self):
+        repo = make_repo(self.work / "r", "https://github.com/acme/r")
+        for payload in ("[1,2,3]", "null", '"hello"', "42", "true"):
+            with self.subTest(payload=payload):
+                self._write(repo, payload)
+                settings, ok = self.cb.read_settings(repo)
+                self.assertFalse(ok)
+                self.assertEqual(settings, {})
+
+    def test_doctor_does_not_crash_on_non_object_json(self):
+        import argparse
+        repo = make_repo(self.work / "r", "https://github.com/acme/r")
+        for payload in ("[1,2,3]", "null", '"hello"', "42"):
+            with self.subTest(payload=payload):
+                self._write(repo, payload)
+                rc = self.cb.cmd_doctor(argparse.Namespace(path=str(repo), vault=None))
+                self.assertEqual(rc, 1)          # a problem, not an exception
+
+    def test_bind_refuses_rather_than_clobbering_non_object_json(self):
+        import argparse
+        repo = make_repo(self.work / "r", "https://github.com/acme/r")
+        sf = self._write(repo, "[1,2,3]")
+        rc = self.cb.cmd_bind(argparse.Namespace(path=str(repo), vault=None, dry_run=False))
+        self.assertEqual(rc, 2)
+        self.assertEqual(sf.read_text(), "[1,2,3]")
+
+    def test_non_string_book_path_is_treated_as_absent(self):
+        """Path(12345) raises TypeError several frames from the cause."""
+        repo = make_repo(self.work / "r", "https://github.com/acme/r")
+        for payload in ('{"autoMemoryDirectory": 12345}',
+                        '{"autoMemoryDirectory": ["a"]}',
+                        '{"autoMemoryDirectory": null}',
+                        '{"autoMemoryDirectory": ""}'):
+            with self.subTest(payload=payload):
+                self._write(repo, payload)
+                settings, ok = self.cb.read_settings(repo)
+                self.assertTrue(ok)
+                self.assertIsNone(self.cb.bound_dir(settings))
+
+    def test_doctor_does_not_crash_on_non_string_book_path(self):
+        import argparse
+        repo = make_repo(self.work / "r", "https://github.com/acme/r")
+        self._write(repo, '{"autoMemoryDirectory": 12345}')
+        rc = self.cb.cmd_doctor(argparse.Namespace(path=str(repo), vault=None))
+        self.assertEqual(rc, 1)
+
+    def test_a_real_string_book_path_still_works(self):
+        repo = make_repo(self.work / "r", "https://github.com/acme/r")
+        self._write(repo, json.dumps({"autoMemoryDirectory": "/tmp/somewhere"}))
+        settings, ok = self.cb.read_settings(repo)
+        self.assertTrue(ok)
+        self.assertEqual(self.cb.bound_dir(settings), "/tmp/somewhere")

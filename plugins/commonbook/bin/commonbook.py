@@ -240,14 +240,32 @@ def settings_path(root: Path) -> Path:
 
 
 def read_settings(root: Path) -> "tuple[dict, bool]":
-    """(settings, parseable). An unparseable file is never overwritten."""
+    """(settings, parseable). An unparseable file is never overwritten.
+
+    A file can be valid JSON and still not be settings: `[1,2,3]`, `null`,
+    `"hello"` and `42` all parse. Returning any of them as the settings dict
+    makes the first `.get()` raise AttributeError several frames away from the
+    cause, so the type is checked here rather than at every call site.
+    """
     f = settings_path(root)
     if not f.is_file():
         return {}, True
     try:
-        return json.loads(f.read_text(encoding="utf-8")), True
+        data = json.loads(f.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}, False
+    return (data, True) if isinstance(data, dict) else ({}, False)
+
+
+def bound_dir(settings: dict) -> "str | None":
+    """The configured book, only when it is usable as a path.
+
+    A non-string value here reaches Path() and raises TypeError. Treating it as
+    absent, and letting the caller report the file as unusable, keeps a
+    hand-edited settings file from taking a read-only command down.
+    """
+    v = settings.get("autoMemoryDirectory")
+    return v if isinstance(v, str) and v else None
 
 
 def is_tracked(root: Path, rel: str) -> bool:
@@ -305,7 +323,7 @@ def cmd_bind(args) -> int:
         out.say("  Binding here would commit a local absolute path. Refusing.")
         return 2
 
-    current = settings.get("autoMemoryDirectory")
+    current = bound_dir(settings)
     if current == str(target):
         out.say(f"{out.green('already bound')}  {root.name} -> {target}")
         return 0
@@ -451,7 +469,7 @@ def cmd_doctor(args) -> int:
     if root:
         book_id, kind, human = identity(root)
         settings, ok = read_settings(root)
-        bound = settings.get("autoMemoryDirectory")
+        bound = bound_dir(settings)
         target = resolve_target(root, book_id, args.vault)
 
         out.say(f"  repo      {root}")
@@ -661,7 +679,8 @@ def cmd_lint(args) -> int:
     start = Path(args.path).expanduser().resolve()
     root = repo_root(start) or start
     settings, ok = read_settings(root)
-    book = Path(settings["autoMemoryDirectory"]) if ok and settings.get("autoMemoryDirectory") else None
+    b = bound_dir(settings) if ok else None
+    book = Path(b) if b else None
     if args.book:
         book = Path(args.book).expanduser()
     if not book or not book.is_dir():
@@ -707,7 +726,7 @@ def cmd_caps(args) -> int:
     if root:
         settings, ok = read_settings(root)
         if ok:
-            book = settings.get("autoMemoryDirectory")
+            book = bound_dir(settings)
     print(json.dumps({
         "version": __version__,
         "repo": str(root) if root else None,
