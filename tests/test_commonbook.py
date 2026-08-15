@@ -1145,7 +1145,12 @@ class TestViewOmissions(unittest.TestCase):
                       {w["kind"] for w in doc["warnings"]})
 
     def test_unreadable_book_does_not_take_the_document_down(self):
-        if os.geteuid() == 0:
+        # POSIX-only by construction: chmod 000 does not make a directory
+        # unreadable on Windows, and os.geteuid does not exist there at all, so
+        # the premise cannot be set up rather than the behaviour being different.
+        if sys.platform == "win32":
+            self.skipTest("directory permissions do not work this way on Windows")
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
             self.skipTest("root ignores directory permissions")
         make_repo(self.work / "r", "https://github.com/acme/r")
         for name in ("good", "locked"):
