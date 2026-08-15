@@ -85,6 +85,7 @@ commonbook prune             # then delete the originals
 | `commonbook lint` | Check notes against the contract for their type. Exits non-zero on violations. |
 | `commonbook graph` | Report whether a code graph exists for this repo, and whether it is stale. |
 | `commonbook caps` | Machine-readable state, for skills and scripts. |
+| `commonbook view` | One JSON document describing the memory state of the machine. |
 
 Every destructive or writing command takes `--dry-run`.
 
