@@ -1473,3 +1473,106 @@ class TestSingleFileInstall(unittest.TestCase):
             self.assertEqual(p.returncode, 0,
                              f"single-file build failed:\n{p.stdout}\n{p.stderr}")
             self.assertTrue(out.is_file())
+
+
+class TestAdoptLocality(Base):
+    """An orphan records the cwd it was written under, and most orphans come
+    from a rename within the same tree — so the repo that owns those notes is
+    usually a directory or two away. Searching there first turns the headline
+    command from a whole-home walk into milliseconds."""
+
+    def _orphan(self, name, cwd):
+        p = self.config / "projects" / name
+        (p / "memory").mkdir(parents=True)
+        (p / "s.jsonl").write_text(json.dumps({"cwd": str(cwd)}) + "\n")
+        (p / "memory" / "n.md").write_text("# n\n")
+        return p
+
+    def test_finds_a_repo_beside_the_recorded_path(self):
+        repo = make_repo(self.work / "group" / "app", "https://github.com/acme/app")
+        self._orphan("gone", self.work / "app")        # moved into group/
+        stores = [s for s in self.cb.scan_stores() if not s["alive"]]
+        roots = self.cb.nearby_roots(stores)
+        self.assertIn(str(repo), roots)
+
+    def test_search_is_bounded_and_never_climbs_to_root(self):
+        """A runaway climb would scan the whole filesystem from one bad path."""
+        self._orphan("far", Path("/nonexistent/a/b/c/d/e/f/g"))
+        stores = [s for s in self.cb.scan_stores() if not s["alive"]]
+        roots = self.cb.nearby_roots(stores)
+        self.assertEqual(roots, {})
+
+    def test_orphan_with_no_cwd_is_skipped_not_crashed(self):
+        p = self.config / "projects" / "nocwd"
+        (p / "memory").mkdir(parents=True)
+        (p / "s.jsonl").write_text("{}\n")
+        (p / "memory" / "n.md").write_text("# n\n")
+        stores = [s for s in self.cb.scan_stores() if not s["alive"]]
+        self.assertEqual(self.cb.nearby_roots(stores), {})
+
+
+class TestDoctorExit(Base):
+    """`doctor` has to be scriptable as a health gate, so standing outside a
+    repo cannot be a failure — otherwise it always fails and gets ignored."""
+
+    def _rc(self, path):
+        import argparse, io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = self.cb.cmd_doctor(argparse.Namespace(path=str(path), vault=None))
+        return rc, buf.getvalue()
+
+    def test_healthy_machine_outside_a_repo_passes(self):
+        plain = self.work / "scratch"
+        plain.mkdir()
+        rc, out = self._rc(plain)
+        self.assertEqual(rc, 0)
+        self.assertIn("not a git repository", out)
+
+    def test_orphans_still_fail_from_outside_a_repo(self):
+        plain = self.work / "scratch"
+        plain.mkdir()
+        p = self.config / "projects" / "gone"
+        (p / "memory").mkdir(parents=True)
+        (p / "s.jsonl").write_text(json.dumps({"cwd": "/gone/x"}) + "\n")
+        (p / "memory" / "n.md").write_text("# n\n")
+        rc, _ = self._rc(plain)
+        self.assertEqual(rc, 1)
+
+
+class TestBudgetIsConfigurable(unittest.TestCase):
+    """The load limit is an assumption, not a verified constant — the binary's
+    measurement is on raw text, but the exact caps could not be resolved. So the
+    budget is overridable, and the drop count is reported either way, which is
+    the part that does not depend on getting the number right."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cb-bud-"))
+        spec = importlib.util.spec_from_file_location("ag2", AGG)
+        self.agg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.agg)
+        d = self.tmp / "book" / "memory"
+        d.mkdir(parents=True)
+        for i in range(80):
+            (d / f"n{i}.md").write_text(
+                f"---\nname: note {i}\ndescription: {'x ' * 30}\n---\n\n# note {i}\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_line_budget_binds(self):
+        notes = self.agg.rank(self.agg.scan_books(self.tmp))
+        text, dropped = self.agg.render(notes, 10**6, line_budget=25)
+        self.assertLessEqual(len(text.splitlines()), 25)
+        self.assertGreater(dropped, 0)
+
+    def test_byte_budget_binds(self):
+        notes = self.agg.rank(self.agg.scan_books(self.tmp))
+        text, dropped = self.agg.render(notes, 1500, line_budget=10**6)
+        self.assertLessEqual(len(text.encode()), 1500)
+        self.assertGreater(dropped, 0)
+
+    def test_drop_count_is_always_reported(self):
+        notes = self.agg.rank(self.agg.scan_books(self.tmp))
+        text, dropped = self.agg.render(notes, 1200, line_budget=20)
+        self.assertIn("did not fit", text)

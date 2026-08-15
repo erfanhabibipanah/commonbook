@@ -421,6 +421,33 @@ def discover_live(search: Path, depth: int, progress=None,
     return roots, pruned
 
 
+def nearby_roots(orphans, depth: int = 3) -> "dict[str, Path]":
+    """Repos near where each orphan says it used to live.
+
+    An orphan records the cwd it was written under. Most orphans come from a
+    rename or a regrouping WITHIN the same tree, so the repo that owns those
+    notes is usually a directory or two from that path — no wide search needed.
+    Walk up to the deepest ancestor that still exists and look only there.
+    """
+    roots: "dict[str, Path]" = {}
+    for s in orphans:
+        cwd = s.get("cwd")
+        if not cwd:
+            continue
+        cur = Path(cwd)
+        for _ in range(4):                     # bounded: never climbs to /
+            if cur.is_dir():
+                break
+            if cur.parent == cur:
+                cur = None
+                break
+            cur = cur.parent
+        if cur and cur.is_dir():
+            found, _ = discover_live(cur, depth)
+            roots.update(found)
+    return roots
+
+
 def cmd_adopt(args) -> int:
     stores = scan_stores()
     orphans = [s for s in stores if not s["alive"] and not s["adopted"]]
@@ -443,8 +470,17 @@ def cmd_adopt(args) -> int:
     # getattr, not args.no_prune: these command functions are called directly by
     # tests and by other modules with a hand-built Namespace, and adding a flag
     # should not break every such caller.
-    live_roots, pruned = discover_live(search, args.depth, progress=tick,
-                                       prune=not getattr(args, "no_prune", False))
+    # Look where the orphans say they were first. That answers most of them in
+    # milliseconds; the wide walk only runs for whatever is left over.
+    live_roots = nearby_roots(orphans)
+    near_hits = sum(1 for s in orphans
+                    if s.get("cwd") and match_orphan(s["cwd"], live_roots))
+    pruned, wide = 0, False
+    if near_hits < len(orphans):
+        wide = True
+        found, pruned = discover_live(search, args.depth, progress=tick,
+                                      prune=not getattr(args, "no_prune", False))
+        live_roots.update(found)
 
     plan = []
     for s in orphans:
@@ -458,13 +494,19 @@ def cmd_adopt(args) -> int:
     projects = {r.name for _, r in matched}
 
     out.say(out.bold("found " + plural(len(orphans), "orphaned memory store")))
-    note = ""
-    if pruned:
+    if not wide:
+        # Do not claim a search that did not happen. Every orphan was matched
+        # next to where it said it lived, so the wide walk never ran.
+        out.say(out.dim("  matched next to each orphan's recorded path · "
+                        + plural(len(live_roots), "live repo")
+                        + " · no wide search needed"))
+    else:
         # Report the skip. A faster scan that quietly ignores a directory tree is
         # the same silent omission this tool exists to prevent.
-        note = f" · {pruned:,} system dirs skipped (--no-prune to include)"
-    out.say(out.dim(f"  searched {short(search)} to depth {args.depth} · "
-                    + plural(len(live_roots), "live repo") + note))
+        note = (f" · {pruned:,} system dirs skipped (--no-prune to include)"
+                if pruned else "")
+        out.say(out.dim(f"  searched {short(search)} to depth {args.depth} · "
+                        + plural(len(live_roots), "live repo") + note))
     out.say()
     for s, root in matched:
         out.say(f"  {out.cyan(root.name):<28} {len(s['notes']):>3} notes  {s['bytes']:>7,} B"
@@ -587,9 +629,12 @@ def cmd_doctor(args) -> int:
             except OSError:
                 pass
     else:
-        out.say(f"  repo      {out.yellow('not a git repository')} — {start}")
-        out.say(f"            a book here would be keyed on the path and orphan on any move")
-        problems += 1
+        # Not being in a repo is a fact about where you are standing, not a
+        # fault in the machine. Counting it as a problem means `doctor` can
+        # never be scripted as a health gate from a scratch directory — it
+        # would always fail, so it would always be ignored.
+        out.say(f"  repo      {out.dim('not a git repository')} — {short(start)}")
+        out.say(f"            run this inside a repo to check its binding")
 
     # ── machine-wide
     stores = scan_stores()

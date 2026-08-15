@@ -42,9 +42,28 @@ HOME = Path.home()
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR", HOME / ".claude"))
 DEFAULT_BOOKS = CLAUDE_DIR / "commonbook"
 
-# Claude Code loads an index capped at 200 lines OR 25 KB, whichever binds
-# first. Bytes bind before lines in practice -- a real index measured 76 lines
-# and 14,294 bytes -- so a line-based budget alone silently overruns.
+# The budget this index is built to fit.
+#
+# Claude Code truncates an index when it loads it, and everything past the limit
+# is dropped with no error -- so the number matters and being wrong about it in
+# the generous direction means reporting an index as complete when it is not.
+#
+# What is actually verified, by reading the shipped binary (2.1.233):
+#   * the measurement is on RAW text. The reducer sums Buffer.byteLength per
+#     line over the unmodified string, and the surrounding code destructures
+#     `rawSizeBytes`. Frontmatter and comments are NOT stripped first.
+#   * the truncation is line-first then byte, so a line budget alone is not
+#     enough and a byte budget alone is not either.
+# What is NOT verified: the exact limits. The constants near the memory
+# telemetry path (30 lines / 65536 bytes) belong to `logMemoryPinWrite`, which
+# truncates content for an analytics payload -- not to the session load. The
+# real limits are behind `surfaceCap` / `spliceCap`, which could not be resolved
+# from the binary with confidence.
+#
+# So these are a documented ASSUMPTION, overridable on the command line, rather
+# than a claim. If your version differs, pass --budget and --line-budget; the
+# drop count is reported either way, which is the part that does not depend on
+# getting the number right.
 BYTE_BUDGET = 25_000
 LINE_BUDGET = 200
 RECENT_DAYS = 30
@@ -134,7 +153,7 @@ def rank(notes: "list[dict]") -> "list[dict]":
     return sorted(notes, key=lambda n: n["_rank"])
 
 
-def render(notes: "list[dict]", budget: int) -> "tuple[str, int]":
+def render(notes: "list[dict]", budget: int, line_budget: int = LINE_BUDGET) -> "tuple[str, int]":
     header = [
         "# Index across all books",
         "",
@@ -151,7 +170,7 @@ def render(notes: "list[dict]", budget: int) -> "tuple[str, int]":
     # is dropped silently at load time.
     RESERVE_LINES, RESERVE_BYTES = 2, 160
     budget -= RESERVE_BYTES
-    line_cap = LINE_BUDGET - RESERVE_LINES
+    line_cap = line_budget - RESERVE_LINES
 
     for n in notes:
         block = []
@@ -187,7 +206,10 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog=os.environ.get("COMMONBOOK_PROG", "aggregate.py"), description=__doc__.split("\n")[0])
     ap.add_argument("--books", default=str(DEFAULT_BOOKS), help="directory holding books")
     ap.add_argument("--out", help="where to write (default: <books>/INDEX.md)")
-    ap.add_argument("--budget", type=int, default=BYTE_BUDGET)
+    ap.add_argument("--budget", type=int, default=BYTE_BUDGET,
+                    metavar="BYTES", help=f"byte budget (default {BYTE_BUDGET:,})")
+    ap.add_argument("--line-budget", type=int, default=LINE_BUDGET,
+                    metavar="N", help=f"line budget (default {LINE_BUDGET})")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
 
@@ -198,13 +220,13 @@ def main(argv=None) -> int:
         return 0
 
     ranked = rank(notes)
-    text, dropped = render(ranked, a.budget)
+    text, dropped = render(ranked, a.budget, a.line_budget)
     kept = len(ranked) - dropped
 
     print(f"  books    {len({n['book'] for n in notes})}")
     print(f"  notes    {len(notes)} found, {kept} indexed, {dropped} dropped")
     print(f"  size     {len(text.encode()):,} B / {a.budget:,} B budget "
-          f"({len(text.splitlines())} / {LINE_BUDGET} lines)")
+          f"({len(text.splitlines())} / {a.line_budget} lines)")
     shared = sum(1 for n in ranked if n["_shared"] > 1)
     print(f"  shared   {shared} note(s) whose topic appears in more than one book")
 
