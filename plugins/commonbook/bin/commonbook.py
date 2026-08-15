@@ -484,7 +484,14 @@ def cmd_adopt(args) -> int:
                         f"{total:,} bytes, " + plural(len(projects), "project")))
         return 0
 
-    if not args.yes and sys.stdin.isatty():
+    if not args.yes:
+        # When the prompt cannot be shown, REFUSE rather than proceed. The old
+        # test was `not yes and isatty()`, which meant a pipe, a cron job or a
+        # CI step skipped the question and went straight ahead — the inverse of
+        # what a confirmation is for.
+        if not sys.stdin.isatty():
+            out.err("refusing to adopt without --yes when stdin is not a terminal")
+            return 2
         try:
             reply = input(f"adopt {plural(len(matched), 'store')} into each project's book? [y/N] ")
         except (EOFError, KeyboardInterrupt):
@@ -652,7 +659,12 @@ def cmd_prune(args) -> int:
         out.say()
         out.say(out.dim(f"dry run — would delete {plural(len(safe), 'store')}, {total:,} bytes"))
         return 0
-    if not args.yes and sys.stdin.isatty():
+    if not args.yes:
+        # prune is the only destructive verb. A non-interactive run that cannot
+        # ask must never assume yes: these notes exist nowhere else.
+        if not sys.stdin.isatty():
+            out.err("refusing to delete without --yes when stdin is not a terminal")
+            return 2
         try:
             reply = input(f"delete {plural(len(safe), 'adopted store')}? [y/N] ")
         except (EOFError, KeyboardInterrupt):

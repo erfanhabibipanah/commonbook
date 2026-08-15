@@ -63,6 +63,14 @@ def _sibling(name: str):
     keeps identity, store scanning and frontmatter parsing in the one place
     each of them already lives.
     """
+    # Inside a zipapp there is no directory to read, so the path form raises
+    # NotADirectoryError and every verb that imports a sibling dies on first
+    # contact. There the modules ARE importable by name, so try that first and
+    # keep the path form for a plain `python3 view.py` run from bin/.
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        pass
     path = Path(__file__).resolve().parent / (name + ".py")
     spec = importlib.util.spec_from_file_location("_commonbook_" + name, path)
     if spec is None or spec.loader is None:          # pragma: no cover

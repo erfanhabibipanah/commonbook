@@ -1358,3 +1358,92 @@ class TestScanPerformance(Base):
         import argparse
         self.cb.cmd_adopt(argparse.Namespace(
             vault=None, search=str(self.work), depth=3, dry_run=True, yes=True))
+
+
+class TestDestructiveSafety(Base):
+    """A confirmation that cannot be shown must REFUSE, not assume yes.
+
+    The original test was `not args.yes and sys.stdin.isatty()`, which meant a
+    pipe, a cron job or a CI step skipped the question entirely and went
+    straight to deleting the only copy of a set of notes. That is the inverse of
+    what a confirmation is for, on the one verb that removes data.
+    """
+
+    def _adopted_orphan(self, book):
+        p = self.config / "projects" / "gone"
+        (p / "memory").mkdir(parents=True)
+        (p / "s.jsonl").write_text(json.dumps({"cwd": "/gone/w"}) + "\n")
+        (p / "memory" / "precious.md").write_text("# irreplaceable\n")
+        book.mkdir(parents=True, exist_ok=True)
+        (book / "precious.md").write_text("# irreplaceable\n")
+        (p / "memory" / self.cb.ADOPTED_MARKER).write_text(
+            json.dumps({"adoptedInto": str(book), "notes": 1}))
+        return p
+
+    def _run(self, fn, **kw):
+        """Call a command with stdin forced to a non-terminal."""
+        import argparse, io, contextlib
+        ns = argparse.Namespace(**kw)
+        buf, err = io.StringIO(), io.StringIO()
+        real = sys.stdin
+        sys.stdin = io.StringIO("")          # a pipe: isatty() is False
+        try:
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+                rc = fn(ns)
+        finally:
+            sys.stdin = real
+        return rc, buf.getvalue() + err.getvalue()
+
+    def test_prune_refuses_when_it_cannot_ask(self):
+        book = self.tmp / "book"
+        p = self._adopted_orphan(book)
+        rc, out = self._run(self.cb.cmd_prune, dry_run=False, yes=False)
+        self.assertEqual(rc, 2)
+        self.assertIn("refusing", out)
+        self.assertTrue((p / "memory" / "precious.md").exists(),
+                        "the only copy was deleted without confirmation")
+
+    def test_prune_proceeds_with_explicit_yes(self):
+        book = self.tmp / "book"
+        p = self._adopted_orphan(book)
+        rc, _ = self._run(self.cb.cmd_prune, dry_run=False, yes=True)
+        self.assertEqual(rc, 0)
+        self.assertFalse((p / "memory").exists())
+
+    def test_adopt_refuses_when_it_cannot_ask(self):
+        make_repo(self.work / "w", "https://github.com/acme/w")
+        p = self.config / "projects" / "orph"
+        (p / "memory").mkdir(parents=True)
+        (p / "s.jsonl").write_text(json.dumps({"cwd": "/gone/w"}) + "\n")
+        (p / "memory" / "n.md").write_text("# n\n")
+        rc, out = self._run(self.cb.cmd_adopt, vault=None, search=str(self.work),
+                            depth=3, dry_run=False, yes=False)
+        self.assertEqual(rc, 2)
+        self.assertIn("refusing", out)
+
+    def test_dry_run_never_needs_confirmation(self):
+        make_repo(self.work / "w", "https://github.com/acme/w")
+        p = self.config / "projects" / "orph"
+        (p / "memory").mkdir(parents=True)
+        (p / "s.jsonl").write_text(json.dumps({"cwd": "/gone/w"}) + "\n")
+        (p / "memory" / "n.md").write_text("# n\n")
+        rc, _ = self._run(self.cb.cmd_adopt, vault=None, search=str(self.work),
+                          depth=3, dry_run=True, yes=False)
+        self.assertEqual(rc, 0)
+
+
+class TestSingleFileInstall(unittest.TestCase):
+    """The README's install line fetches one file. Every verb it advertises has
+    to work from that file — this is the path every stranger takes."""
+
+    def test_build_and_every_advertised_verb_works(self):
+        import tempfile as tf
+        build = ROOT / "build.py"
+        self.assertTrue(build.is_file(), "build.py is missing")
+        with tf.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "commonbook.pyz"
+            p = subprocess.run([sys.executable, str(build), "--out", str(out), "--check"],
+                               capture_output=True, text=True, timeout=300)
+            self.assertEqual(p.returncode, 0,
+                             f"single-file build failed:\n{p.stdout}\n{p.stderr}")
+            self.assertTrue(out.is_file())

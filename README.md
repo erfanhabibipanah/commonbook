@@ -36,9 +36,12 @@ Then, in any repo: `/commonbook:bind`
 **As a standalone command** — one file, standard library only, no dependencies:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/erfanhabibipanah/commonbook/main/plugins/commonbook/bin/commonbook.py -o ~/.local/bin/commonbook
+curl -fsSL https://github.com/erfanhabibipanah/commonbook/releases/latest/download/commonbook.pyz -o ~/.local/bin/commonbook
 chmod +x ~/.local/bin/commonbook
 ```
+
+One file, every command. Built by `python3 build.py`, and CI runs every documented verb against
+the built artifact so the install cannot quietly lose one.
 
 Requires Python 3.9+ and git. Works on macOS, Linux and WSL.
 
@@ -86,6 +89,8 @@ commonbook prune             # then delete the originals
 | `commonbook prune` | Delete originals that are verified present in a book. |
 | `commonbook lint` | Check notes against the contract for their type. Exits non-zero on violations. |
 | `commonbook graph` | Report whether a code graph exists for this repo, and whether it is stale. |
+| `commonbook aggregate` | A ranked, budgeted index across every book. |
+| `commonbook autonomy` | Write-authority tiers for unattended work, and the invariants that check them. |
 | `commonbook caps` | Machine-readable state, for skills and scripts. |
 | `commonbook view` | One JSON document describing the memory state of the machine. |
 | `commonbook render` | Turn that document into one self-contained HTML page. |
