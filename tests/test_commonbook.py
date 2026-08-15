@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -523,3 +524,113 @@ class TestGraphAdapter(unittest.TestCase):
             rc = self.gr.cmd_status(argparse.Namespace(path=str(self.repo)))
         self.assertEqual(rc, 1)
         self.assertIn("schema", buf.getvalue())
+
+
+AUTONOMY = ROOT / "plugins" / "commonbook" / "bin" / "autonomy.py"
+
+
+class TestAutonomy(unittest.TestCase):
+    """A tier is a claim. The invariants are what make it true — so each one
+    must actually fire, and a clean state must actually pass."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cb-auto-"))
+        self.repo = self.tmp / "repo"
+        (self.repo / ".git").mkdir(parents=True)
+        spec = importlib.util.spec_from_file_location("au", AUTONOMY)
+        self.au = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.au)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _ns(self, **kw):
+        import argparse
+        base = {"path": str(self.repo), "book": None, "reason": None}
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def _quiet(self, fn, ns):
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = fn(ns)
+        return rc, buf.getvalue()
+
+    def _proposal(self, name="p1.md", age_days=0):
+        d = self.repo / self.au.REVIEW_REL
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / name
+        f.write_text("# a proposal\n")
+        if age_days:
+            old = time.time() - age_days * 86400
+            os.utime(f, (old, old))
+        return f
+
+    def test_default_tier_is_read_only(self):
+        self.assertEqual(self.au.current_tier(self.repo), 0)
+
+    def test_tier_three_requires_a_reason(self):
+        rc, _ = self._quiet(self.au.cmd_set, self._ns(tier=3))
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.au.current_tier(self.repo), 0)
+
+    def test_tier_three_with_a_reason_is_allowed(self):
+        rc, _ = self._quiet(self.au.cmd_set, self._ns(tier=3, reason="nightly pass"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.au.current_tier(self.repo), 3)
+
+    def test_read_only_tier_with_proposals_fails(self):
+        self._proposal()
+        rc, out = self._quiet(self.au.cmd_check, self._ns())
+        self.assertEqual(rc, 1)
+        self.assertIn("tier 0 declares no writes", out)
+
+    def test_stale_proposals_fail(self):
+        self._quiet(self.au.cmd_set, self._ns(tier=1))
+        self._proposal(age_days=self.au.STALE_PROPOSAL_DAYS + 5)
+        rc, out = self._quiet(self.au.cmd_check, self._ns())
+        self.assertEqual(rc, 1)
+        self.assertIn("review gate is not being used", out)
+
+    def test_runaway_growth_is_detected(self):
+        book = self.tmp / "book"
+        book.mkdir()
+        for i in range(self.au.MAX_NOTES_PER_DAY + 5):
+            (book / f"n{i}.md").write_text("# n\n")
+        self._quiet(self.au.cmd_set, self._ns(tier=1))
+        rc, out = self._quiet(self.au.cmd_check, self._ns(book=str(book)))
+        self.assertEqual(rc, 1)
+        self.assertIn("looks like a loop", out)
+
+    def test_normal_authorship_is_not_flagged(self):
+        """The check exists to catch runaway, not to police a productive week."""
+        book = self.tmp / "book"
+        book.mkdir()
+        for i in range(5):
+            (book / f"n{i}.md").write_text("# n\n")
+        self._quiet(self.au.cmd_set, self._ns(tier=1))
+        rc, _ = self._quiet(self.au.cmd_check, self._ns(book=str(book)))
+        self.assertEqual(rc, 0)
+
+    def test_unparseable_config_is_reported_not_silently_zero(self):
+        p = self.repo / self.au.CONFIG_REL
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{ broken")
+        rc, out = self._quiet(self.au.cmd_check, self._ns())
+        self.assertEqual(rc, 1)
+        self.assertIn("does not parse", out)
+
+    def test_tier_three_without_reason_in_config_is_flagged(self):
+        p = self.repo / self.au.CONFIG_REL
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"tier": 3}))
+        rc, out = self._quiet(self.au.cmd_check, self._ns())
+        self.assertEqual(rc, 1)
+        self.assertIn("no recorded reason", out)
+
+    def test_clean_state_passes(self):
+        self._quiet(self.au.cmd_set, self._ns(tier=1))
+        rc, out = self._quiet(self.au.cmd_check, self._ns())
+        self.assertEqual(rc, 0)
+        self.assertIn("all invariants hold", out)

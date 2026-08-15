@@ -178,6 +178,43 @@ names back.
 
 ---
 
+## Running it unattended
+
+If you schedule anything that writes notes, the question is not whether it works — it is what
+happens over months when it is subtly wrong. Drift, duplication and confidently-wrong notes do not
+announce themselves; the run reports success while the corpus gets worse.
+
+So write authority is explicit and graduated, and the default is the lowest:
+
+| Tier | Name | What it permits |
+| --- | --- | --- |
+| 0 | `read-only` | Observe and report. No writes at all. **The default.** |
+| 1 | `propose` | Write proposals to a review directory. Nothing lands until you move it. |
+| 2 | `marked` | Write, but only inside generated markers, so a diff shows exactly what changed. |
+| 3 | `full` | Unrestricted. Never implied by a lower tier working well. |
+
+```sh
+commonbook autonomy show          # current tier and what it permits
+commonbook autonomy set 1         # raise it deliberately
+commonbook autonomy check         # assert the invariants; non-zero on failure
+```
+
+Tier 3 refuses to be set without `--reason`, because that sentence is the only explanation anyone
+gets six months later.
+
+`check` is the part that matters. A tier is a claim; the invariants are what make it true:
+
+- a tier-0 repo with proposals sitting in the review directory — something wrote, so the tier is not
+  describing reality
+- proposals older than two weeks — the gate is nominal, because the safety property of tier 1 is a
+  human and an untouched queue says there is none
+- more than 40 notes written in a day — authorship has a human rhythm and a loop does not
+- tier 3 with no recorded reason
+- a config file that exists but does not parse, which silently means tier 0 while the operator
+  believes otherwise
+
+---
+
 ## FAQ
 
 **Why did Claude Code forget my project?**
