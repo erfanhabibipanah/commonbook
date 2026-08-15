@@ -39,6 +39,12 @@ import sys
 import time
 from pathlib import Path
 
+def plural(n: int, one: str, many: "str | None" = None) -> str:
+    """"1 note" / "2 notes". Written out rather than "note(s)" because a public
+    tool is judged on its first screen, and (s) reads as unfinished."""
+    return f"{n:,} {one if n == 1 else (many or one + 's')}"
+
+
 TIERS = {
     0: ("read-only", "observe and report; no writes at all"),
     1: ("propose", "write proposals to review/; nothing lands unreviewed"),
@@ -108,7 +114,7 @@ def cmd_show(a) -> int:
         print(f"  reason    {cfg['reason']}")
 
     pending = list((root / REVIEW_REL).glob("*.md")) if (root / REVIEW_REL).is_dir() else []
-    print(f"  pending   {len(pending)} proposal(s) awaiting review")
+    print(f"  pending   " + plural(len(pending), "proposal") + " awaiting review")
     if tier == 0:
         print()
         print("  Nothing writes at this tier. Raise it deliberately when you want")
@@ -151,7 +157,7 @@ def cmd_review(a) -> int:
         print("  no proposals pending")
         return 0
     now = time.time()
-    print(f"  {len(items)} proposal(s) in {d}")
+    print(f"  " + plural(len(items), "proposal") + f" in {d}")
     print()
     for f in items:
         try:
@@ -198,7 +204,7 @@ def cmd_check(a) -> int:
     review = root / REVIEW_REL
     pending = sorted(review.glob("*.md")) if review.is_dir() else []
     if tier == 0 and pending:
-        problems.append(f"tier 0 declares no writes, but {len(pending)} proposal(s) exist")
+        problems.append("tier 0 declares no writes, but " + plural(len(pending), "proposal") + " exist")
 
     # 2. Proposals that nobody reviews mean the gate is nominal. The safety
     #    property of tier 1 is the human, and an untouched queue says there is
@@ -207,7 +213,7 @@ def cmd_check(a) -> int:
     stale = [f for f in pending
              if (now - f.stat().st_mtime) > STALE_PROPOSAL_DAYS * 86400]
     if stale:
-        problems.append(f"{len(stale)} proposal(s) older than {STALE_PROPOSAL_DAYS} days — "
+        problems.append(plural(len(stale), "proposal") + f" older than {STALE_PROPOSAL_DAYS} days — "
                         "the review gate is not being used")
 
     # 3. Runaway growth. Authorship has a human rhythm; a loop does not.
@@ -219,7 +225,7 @@ def cmd_check(a) -> int:
             problems.append(f"{worst[1]} notes written on {worst[0]} "
                             f"(limit {MAX_NOTES_PER_DAY}) — looks like a loop, not authorship")
         total = sum(per_day.values())
-        notes.append(f"book has {total} note(s) across {len(per_day)} day(s)")
+        notes.append(f"book has " + plural(total, "note") + " across " + plural(len(per_day), "day"))
 
     # 4. Tier 3 with no recorded reason is the state nobody can explain later.
     cfg = load_config(root)
@@ -235,7 +241,7 @@ def cmd_check(a) -> int:
 
     for n in notes:
         print(f"  note      {n}")
-    print(f"  pending   {len(pending)} proposal(s)")
+    print(f"  pending   " + plural(len(pending), "proposal"))
     print()
 
     if not problems:
@@ -244,7 +250,7 @@ def cmd_check(a) -> int:
     for p in problems:
         print(f"  FAIL      {p}")
     print()
-    print(f"  {len(problems)} invariant(s) violated")
+    print("  " + plural(len(problems), "invariant") + " violated")
     return 1
 
 

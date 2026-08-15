@@ -43,6 +43,12 @@ from pathlib import Path
 
 __version__ = "0.1.0"
 
+def plural(n: int, one: str, many: "str | None" = None) -> str:
+    """"1 note" / "2 notes". Written out rather than "note(s)" because a public
+    tool is judged on its first screen, and (s) reads as unfinished."""
+    return f"{n:,} {one if n == 1 else (many or one + 's')}"
+
+
 HOME = Path.home()
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR", HOME / ".claude"))
 PROJECTS_DIR = CLAUDE_DIR / "projects"
@@ -376,7 +382,7 @@ def cmd_adopt(args) -> int:
     orphans = [s for s in stores if not s["alive"] and not s["adopted"]]
     if not orphans:
         live = len(stores)
-        out.say(f"{out.green('no orphaned memory')} — {live} store(s) all resolve to a live directory")
+        out.say(f"{out.green('no orphaned memory')} — " + plural(live, 'store') + " all resolve to a live directory")
         return 0
 
     search = Path(args.search).expanduser().resolve()
@@ -393,8 +399,8 @@ def cmd_adopt(args) -> int:
     total = sum(s["bytes"] for s, _ in matched)
     projects = {r.name for _, r in matched}
 
-    out.say(out.bold(f"found {len(orphans)} orphaned memory store(s)"))
-    out.say(out.dim(f"  searched {search} to depth {args.depth} · {len(live_roots)} live repo(s)"))
+    out.say(out.bold("found " + plural(len(orphans), "orphaned memory store")))
+    out.say(out.dim(f"  searched {search} to depth {args.depth} · " + plural(len(live_roots), "live repo")))
     out.say()
     for s, root in matched:
         out.say(f"  {out.cyan(root.name):<28} {len(s['notes']):>3} notes  {s['bytes']:>7,} B"
@@ -410,13 +416,13 @@ def cmd_adopt(args) -> int:
         return 1
 
     if args.dry_run:
-        out.say(out.dim(f"dry run — would adopt {len(matched)} store(s), "
-                        f"{total:,} bytes, {len(projects)} project(s)"))
+        out.say(out.dim(f"dry run — would adopt {plural(len(matched), 'store')}, "
+                        f"{total:,} bytes, " + plural(len(projects), "project")))
         return 0
 
     if not args.yes and sys.stdin.isatty():
         try:
-            reply = input(f"adopt {len(matched)} store(s) into each project's book? [y/N] ")
+            reply = input(f"adopt {plural(len(matched), 'store')} into each project's book? [y/N] ")
         except (EOFError, KeyboardInterrupt):
             out.say()
             return 1
@@ -452,7 +458,7 @@ def cmd_adopt(args) -> int:
         cmd_bind(bind_args)
 
     out.say()
-    out.say(out.green(f"adopted {adopted} store(s) · {total:,} bytes · {len(projects)} project(s)"))
+    out.say(out.green(plural(adopted, "store") + f" adopted · {total:,} bytes · " + plural(len(projects), "project")))
     out.say(out.dim("  originals left in place — remove them once you have verified the copies"))
     return 0
 
@@ -531,7 +537,7 @@ def cmd_doctor(args) -> int:
 
     out.say()
     if problems:
-        out.say(out.yellow(f"{problems} thing(s) to fix"))
+        out.say(out.yellow(plural(problems, "thing") + " to fix"))
     else:
         out.say(out.green("all good"))
     return 1 if problems else 0
@@ -563,7 +569,7 @@ def cmd_prune(args) -> int:
             continue
         missing = [n.name for n in s["notes"] if not list(target.rglob(n.name))]
         if missing:
-            unsafe.append((s, f"{len(missing)} note(s) not found in the book"))
+            unsafe.append((s, plural(len(missing), "note") + " not found in the book"))
         else:
             safe.append((s, target))
 
@@ -580,11 +586,11 @@ def cmd_prune(args) -> int:
     total = sum(s["bytes"] for s, _ in safe)
     if args.dry_run:
         out.say()
-        out.say(out.dim(f"dry run — would delete {len(safe)} store(s), {total:,} bytes"))
+        out.say(out.dim(f"dry run — would delete {plural(len(safe), 'store')}, {total:,} bytes"))
         return 0
     if not args.yes and sys.stdin.isatty():
         try:
-            reply = input(f"delete {len(safe)} adopted store(s)? [y/N] ")
+            reply = input(f"delete {plural(len(safe), 'adopted store')}? [y/N] ")
         except (EOFError, KeyboardInterrupt):
             out.say()
             return 1
@@ -595,7 +601,7 @@ def cmd_prune(args) -> int:
     for s, _ in safe:
         shutil.rmtree(s["memory"], ignore_errors=True)
     out.say()
-    out.say(out.green(f"pruned {len(safe)} store(s) · {total:,} bytes"))
+    out.say(out.green(plural(len(safe), "store") + f" pruned · {total:,} bytes"))
     return 0
 
 
@@ -714,7 +720,7 @@ def cmd_lint(args) -> int:
             rel = f
         out.say(f"  {out.yellow('x')} {str(rel)[:48]:<48} {why}")
     out.say()
-    out.say(out.yellow(f"{len(bad)} violation(s)"))
+    out.say(out.yellow(plural(len(bad), "violation")))
     return 1
 
 

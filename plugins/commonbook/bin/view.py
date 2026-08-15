@@ -44,6 +44,12 @@ import sys
 import time
 from pathlib import Path
 
+def plural(n: int, one: str, many: "str | None" = None) -> str:
+    """"1 note" / "2 notes". Written out rather than "note(s)" because a public
+    tool is judged on its first screen, and (s) reads as unfinished."""
+    return f"{n:,} {one if n == 1 else (many or one + 's')}"
+
+
 SCHEMA = "commonbook.view/1"
 
 

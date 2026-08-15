@@ -39,6 +39,12 @@ REQUIRED_TOP = {"nodes", "links"}
 OPTIONAL_TOP = {"built_at_commit", "directed", "multigraph", "hyperedges", "graph"}
 REQUIRED_NODE = {"id", "label"}
 
+def plural(n: int, one: str, many: "str | None" = None) -> str:
+    """"1 note" / "2 notes". Written out rather than "note(s)" because a public
+    tool is judged on its first screen, and (s) reads as unfinished."""
+    return f"{n:,} {one if n == 1 else (many or one + 's')}"
+
+
 SCOPE_MARKER = ".commonbook/graph-scope"
 
 
